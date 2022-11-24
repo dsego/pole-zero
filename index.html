@@ -44,13 +44,13 @@
     }
 
     .zero circle, .conjugate-zero circle {
-      stroke: royalblue;
+      stroke: darkslateblue;
       stroke-width: 2px;
       fill: transparent;
     }
 
     .pole line, .conjugate-pole line {
-      stroke: orangered;
+      stroke: darkslateblue;
       stroke-width: 2px;
     }
 
@@ -76,6 +76,18 @@
       stroke-width: 2px;
     }
 
+    .sine {
+      fill: none;
+      stroke: deeppink;
+      stroke-width: 2px;
+    }
+
+    .cosine {
+      fill: none;
+      stroke: dodgerblue;
+      stroke-width: 2px;
+    }
+
   </style>
 </head>
 <body>
@@ -93,13 +105,30 @@
       <svg id="phase"></svg>
     </div>
   </div>
+  <svg id="timeplot"></svg>
   <script>
 
-    const pole = (x, y, strength) => ({ x, y, strength, type: 'pole' })
+    const uniqueGenerator = (prefix = '') => {
+      let number = 1
+      return () => {
+        number += 1
+        return `${prefix}${number}`
+      }
+    }
 
-    const zero = (x, y, strength) => ({ x, y, strength, type: 'zero' })
+    const unique = uniqueGenerator('polezero-')
+
+    const pole = (x, y, strength) => ({
+      x, y, strength, type: 'pole', key: unique(),
+    })
+
+    const zero = (x, y, strength) => ({
+      x, y, strength, type: 'zero', key: unique(),
+    })
 
     const distance = (x1, y1, x2=0, y2=0) => Math.sqrt((x1-x2)*(x1-x2) + (y1-y2)*(y1-y2))
+
+    const angle = (x, y) => Math.atan2(y, x)
 
     const snap = (value, to=0, delta=0.1) => Math.abs(value - to) > delta ? value : to
 
@@ -113,75 +142,131 @@
       return [x, y]
     }
 
-    const magnitude = (freq, points) => {
+    const decibel = (value) => 20 * Math.log(value) / Math.LN10
+
+    const magnitude = (freq, zeros, poles) => {
       // e^j⍵
       const x = Math.cos(freq)
       const y = Math.sin(freq)
       let numerator = 1
       let denominator = 1
 
-      const zeros = points.filter(p => p.type === 'zero')
-      const poles = points.filter(p => p.type === 'pole')
-
       // |e^j⍵ - zero|
       for (let z of zeros) {
         numerator *= Math.pow(distance(x, y, z.x, z.y), z.strength)
-        if (z.y != 0) numerator *= Math.pow(distance(x, y, z.x, -z.y), z.strength) // conjugate
+        numerator *= Math.pow(distance(x, y, z.x, -z.y), z.strength) // conjugate
       }
 
       // |e^j⍵ - pole|
       for (let p of poles) {
         denominator *= Math.pow(distance(x, y, p.x, p.y), p.strength)
-        if (p.y != 0) denominator *= Math.pow(distance(x, y, p.x, -p.y), p.strength) // conjugate
+        denominator *= Math.pow(distance(x, y, p.x, -p.y), p.strength) // conjugate
       }
 
       let mag = numerator / denominator
       if (isNaN(mag)) mag = 1 // 0/0
 
-      return [freq, 20 * Math.log(mag) / Math.LN10]
+      return [freq, decibel(mag)]
     }
 
-    const wrapPhase = (p) => {
+    const unwrap = (p) => {
       while (p > Math.PI) p -= 2*Math.PI
       while (p < -Math.PI) p += 2*Math.PI
       return p
     }
 
-    const phase = (freq, points) => {
+    const phase = (freq, zeros, poles) => {
       // e^j⍵
       const x = Math.cos(freq)
       const y = Math.sin(freq)
-      let phi = 0
-
-      const zeros = points.filter(p => p.type === 'zero')
-      const poles = points.filter(p => p.type === 'pole')
+      let ph = 0
 
       // ∠ (e^j⍵, pole)
       for (let p of poles) {
-        phi += Math.atan2(x-p.x, y-p.y) * p.strength
-        if (p.y != 0) phi += Math.atan2(x-p.x, y+p.y) * p.strength // conjugate
+        ph += Math.atan2(x-p.x, y-p.y) * p.strength
+        ph += Math.atan2(x-p.x, y+p.y) * p.strength // conjugate
       }
 
       // ∠ (e^j⍵, zero)
       for (let z of zeros) {
-        phi -= Math.atan2(x-z.x, y-z.y) * z.strength
-        if (z.y != 0) phi -= Math.atan2(x-z.x, y+z.y) * z.strength // conjugate
+        ph -= Math.atan2(x-z.x, y-z.y) * z.strength
+        ph -= Math.atan2(x-z.x, y+z.y) * z.strength // conjugate
       }
-      return [freq, wrapPhase(phi)]
+      return [freq, unwrap(ph)]
     }
 
-    const createSnapDrag = (callback, origin, pixels=3) => (
-      d3.drag()
-        // .subject(() => ({ x: d3.event.x, y: d3.event.y }))
-        // .on('start', () => d3.event.sourceEvent.preventDefault())
-        // .on('drag', (d, i) => {
-        //   const x = snap(d3.event.x, plane.origin.x, pixels)
-        //   const y = snap(d3.event.y, plane.origin.y, pixels)
-        //   callback(plane.scale.x.invert(x), plane.scale.y.invert(y), i)
-        // })
-        // .on('end', () => )
-    )
+    // const analysis = (range, signal) => (freq) => {
+    //   const sine = sinusoid(freq)
+    //   const cosine = sinusoid(freq, Math.PI/2)
+    //   const complex = [0, 0]
+    //   for (const t of range) {
+    //     complex[0] += signal(t) * cosine(t),
+    //     complex[1] -= signal(t) * sine(t)
+    //   }
+    //   return magnitude(complex)
+    // }
 
+
+    // f(t) cos(2pist) dt
+    //-  f(t) sin(2pist) dt
+
+    // f(t)  e ^(-i2pist) dt
+
+
+    const frequencyResponse = (zeros, poles) => {
+
+    }
+
+    const impulseResponse = (time, zeros, poles, frequencies) => {
+      let result = [0, 0]
+
+      // const A = distance(z[0], z[1])
+      // const w = angle(z[0], z[1])
+
+      for (const f of frequencies) {
+        // freq respose for f is on the unit circle at angle f, it's a complex number
+
+      }
+
+      // for all frequencies apply inverse fourier
+
+      // for (let z of zeros) {
+      //   const A = distance(z.x, z.y)
+      //   const w = angle(z.x, z.y)
+      //   const amp = Math.pow(A, time)
+      //   re -= amp * Math.cos(w * time)
+      //   im -= amp * Math.sin(w * time)
+      // }
+
+      for (let p of poles) {
+        const [re, im] = response(polar(p), time)
+        result[0] += re
+        result[1] += im
+
+        const p1 = conjugate(p)
+        const [re1, im1] = response(polar(p1), time)
+        result[0] += re1
+        result[1] += im1
+      }
+
+      return result
+    }
+
+    // pole in polar form
+    const response = ({r, w}, time) => {
+      const amp = Math.pow(r, time)
+      const re = amp * Math.cos(w * time)
+      const im = amp * Math.sin(w * time)
+      return [re, im]
+    }
+
+    const conjugate = ({x, y}) => ({x, y: -y})
+
+    const polar = ({x, y}) => {
+      const r = distance(x, y)
+      const w = angle(x, y)
+      return {r, w}
+    }
 
     const createClippingRect = (svg, id, width, height) => {
       let defs = svg.select('defs')
@@ -222,38 +307,70 @@
         .style('fill', 'transparent')
     }
 
-
-
     class Plot {
       constructor({svgSelector, xdomain, ydomain, width, height, margin}) {
         this.width = width
         this.height = height
         this.margin = margin
         this.x = d3.scaleLinear().domain(xdomain).range([margin, width - margin])
-        this.y = d3.scaleLinear().domain(ydomain).range([margin, width - margin])
+        this.y = d3.scaleLinear().domain(ydomain).range([margin, height - margin])
         this.svg = d3.select(svgSelector)
           .attr('width', width)
           .attr('height', height)
-        createClippingRect(this.svg, 'clip', this.width, this.height)
       }
-
     }
 
     class PoleZeroPlot extends Plot {
       constructor({onDrag, onSelect, selected, selectedZero, ...args}) {
         super(args)
         this.drawLayout()
-        this.drag = createSnapDrag(this.onDrag)
-        this.onSelect = onSelect
-        this.selected = selected
-      }
+        this.origin = [this.x.invert(0), this.y.invert(0)]
 
-      onDrag(d, i) {
-        console.log(d, i)
-      }
+        const self = this // workaround for d3 using `this` as target element :/
 
-      drawPoles(poles) {
+        this.drag = d3.drag()
+          .on('start', function (e) {
+            e.sourceEvent.preventDefault()
+            d3.select(this).raise()
+          // d3.select(e.sourceEvent.target).classed('drag', true).attr('r', 7)
+          })
+          .on('drag', function (e) {
+            const targetEl = d3.select(this)
+            const datum = targetEl.datum()
+            const newDatum = {...datum}
+            let {dx, dy} = e
 
+            const x = snap(self.x(datum.x) + dx, self.origin[0], 3)
+            const y = snap(self.y(datum.y) + dy, self.origin[1], 3)
+
+            newDatum.x = self.x.invert(x)
+            newDatum.y = self.y.invert(y)
+
+            targetEl
+              .attr('transform', `translate(${[x, self.y(newDatum.y)]})`)
+              .datum(newDatum)
+
+            let conjugate = ''
+
+            if (targetEl.classed('zero')) conjugate = '.conjugate-zero'
+            else if (targetEl.classed('conjugate-zero')) conjugate = '.zero'
+            else if (targetEl.classed('pole')) conjugate = '.conjugate-pole'
+            else if (targetEl.classed('conjugate-pole')) conjugate = '.pole'
+
+            self.svg.selectAll(conjugate)
+              .filter((d) => d.key === datum.key)
+              .datum({...newDatum, y: -newDatum.y})
+              .attr('transform', `translate(${[x, self.y(-newDatum.y)]})`)
+
+            onDrag(newDatum)
+          })
+          .on('end', (e) => {
+            // d3.select(e.sourceEvent.target).classed('drag', false).attr('r', 5)
+          })
+
+
+        // this.onSelect = onSelect
+        // this.selected = selected
       }
 
       drawPolesZeros(data) {
@@ -273,6 +390,7 @@
         this.svg.selectAll('.conjugate-zero')
           .data(data.filter(d => d.type === 'zero'))
           .join('g')
+            .datum(d => ({...d, y: -d.y}))
             .classed('conjugate-zero', true)
             .attr('visibility', d => d.y == 0 ? 'hidden' : 'visible')
             // .classed('selected', (d, i) => i == this.selected)
@@ -300,11 +418,12 @@
         this.svg.selectAll('.conjugate-pole')
           .data(data.filter(d => d.type === 'pole'))
           .join('g')
+            .datum(d => ({...d, y: -d.y}))
             .classed('conjugate-pole', true)
             // .classed('selected', (d, i) => i == this.selected)
             .call(drawPole)
             .call(this.drag)
-            .attr('transform', d => `translate(${[this.x(d.x), this.y(-d.y)]})`)
+            .attr('transform', d => `translate(${[this.x(d.x), this.y(d.y)]})`)
             // .on('click', (d, i) => this.onSelect(d, i))
             .select('.strength')
               .text(d => d[2])
@@ -350,11 +469,9 @@
         this.y.clamp(true)
         this.magnitudePath = this.svg.append('path')
           .classed('magnitude', true)
-          .attr('clip-path', 'url(#clip)')
 
         this.magnitudeArea = this.svg.append('path')
           .classed('magnitude-area', true)
-          .attr('clip-path', 'url(#clip)')
       }
 
       drawLayout() {
@@ -370,6 +487,8 @@
           .classed('axis y-axis', true)
           .attr('transform', `translate(${[this.margin, 0]})`)
           .call(d3.axisLeft(this.y).tickSize(-this.width + 2 * this.margin).ticks(5))
+
+        this.svg.selectAll('.tick').attr('stroke-dasharray', '1 2')
       }
 
       drawPath(data) {
@@ -391,9 +510,7 @@
       constructor(args) {
         super(args)
         this.drawLayout()
-        this.phasePath = this.svg.append('path')
-          .classed('phase', true)
-          .attr('clip-path', 'url(#clip)')
+        this.phasePath = this.svg.append('path').classed('phase', true)
       }
 
       drawPath(data) {
@@ -420,13 +537,66 @@
           .tickSize(-this.width + 2 * this.margin)
           .tickValues(d3.range(Math.PI, -Math.PI-0.1, -Math.PI/2))
           .tickFormat((d,i) => labels[i]))
+
+        this.svg.selectAll('.tick').attr('stroke-dasharray', '1 2')
+      }
+    }
+
+
+    class TimePlot extends Plot {
+      constructor(args) {
+        super(args)
+        this.drawLayout()
+        this.createPaths()
+        this.line = d3.line()
+          .x(d => this.x(d[0]))
+          .y(d => this.y(d[1]))
+        createClippingRect(this.svg, 'clip', this.width, this.height)
+      }
+
+      createPaths() {
+        this.sinePath = this.svg.append('path')
+          .classed('sine', true)
+          .attr('clip-path', 'url(#clip)')
+        this.cosinePath = this.svg.append('path')
+          .classed('cosine', true)
+          .attr('clip-path', 'url(#clip)')
+      }
+
+      drawLayout() {
+        this.svg.append('g')
+          .classed('axis x-axis', true)
+          .attr('transform', `translate(${[0, this.y(0)]})`)
+          .call(d3.axisBottom(this.x).ticks(5).tickSize(0))
+          .append('text').text('Time')
+            .attr('x', this.width - this.margin)
+            .attr('dy', -6)
+
+        this.svg.append('g')
+          .classed('axis y-axis', true)
+          .attr('transform', `translate(${[this.x(0), 0]})`)
+          .call(d3.axisLeft(this.y).ticks(5).tickSize(0))
+
+        this.svg.selectAll('.x-axis .tick')
+          .filter((d,i) => i === 0)
+          .remove()
+      }
+
+      drawPath(data) {
+        const max = d3.max(data, (d) => Math.max(Math.abs(d[1]), Math.abs(d[2])))
+        this.y.domain([max, -max])
+        this.svg.select('.y-axis').call(d3.axisLeft(this.y).ticks(5).tickSize(0))
+
+        const cosine = data.map(d => [d[0], d[1]])
+        const sine = data.map(d => [d[0], d[2]])
+        this.sinePath.attr('d', this.line(sine))
+        this.cosinePath.attr('d', this.line(cosine))
       }
     }
 
     const margin = 30
-    const width = Math.floor(document.body.offsetWidth / 3)
-    const height = width
-
+    const width = 400
+    const height = 400
 
     const poleZero = new PoleZeroPlot({
       svgSelector:'#pole-zero',
@@ -435,6 +605,11 @@
       width,
       height,
       margin,
+      onDrag: (target) => {
+        const i = data.findIndex(d => d.key === target.key)
+        data[i] = target
+        redraw()
+      }
     })
 
     const magnitudePlot = new MagnitudePlot({
@@ -455,26 +630,52 @@
       margin,
     })
 
+    const timePlot = new TimePlot({
+      svgSelector:'#timeplot',
+      xdomain: [0, 50],
+      ydomain: [2, -2],
+      width: 800,
+      height: 300,
+      margin,
+    })
+
+    const time = d3.range(0, 50, 0.1)
     const frequencies = d3.range(0, Math.PI+0.01, 0.01)
 
+    // const data = [
+    //   zero( 0.0013674060635677, -0.9999990650998917, 1),
+    //   zero(-0.7064224164410539, -0.7077904842180222, 1),
+    //   pole( 0.3142251190555413, -0.6948674561628037, 1),
+    //   pole( 0.1059132792803165, -0.2621513011445515, 1),
+    // ]
     const data = [
-      zero( 0.0013674060635677, -0.9999990650998917, 1),
-      zero(-0.7064224164410539, -0.7077904842180222, 1),
-      pole( 0.3142251190555413, -0.6948674561628037, 1),
-      pole( 0.1059132792803165, -0.2621513011445515, 1),
+      // zero(0, 0, 1),
+      pole(0.85441, 0.23288, 1),
+      pole(0.4, 0.7, 1)
+      // zero(1, 0, 1),
+      // pole(0.6, 0.75, 1),
+      // pole(0.3, 0.8, 1),
+      // zero(-0.3, 0.8, 1),
+      // pole(0.5, 0, 1)
+      // pole(1.2, 0.0, 1)
     ]
     const selected = -1
 
-
     poleZero.drawPolesZeros(data)
 
-    const magnitudeData = frequencies.map(f => magnitude(f, data))
-    const phaseData = frequencies.map(f => phase(f, data))
+    const redraw = () => {
+      const zeros = data.filter(d => d.type === 'zero')
+      const poles = data.filter(d => d.type === 'pole')
+      const magnitudeData = frequencies.map(f => magnitude(f, zeros, poles))
+      const phaseData = frequencies.map(f => phase(f, zeros, poles))
+      const timeData = time.map(t => [t, ...impulseResponse(t, zeros, poles, frequencies)])
 
-    magnitudePlot.drawPath(magnitudeData)
-    phasePlot.drawPath(phaseData)
+      magnitudePlot.drawPath(magnitudeData)
+      phasePlot.drawPath(phaseData)
+      timePlot.drawPath(timeData)
+    }
 
-
+    redraw()
 
   </script>
 </body>
