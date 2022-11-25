@@ -54,14 +54,16 @@
       stroke-width: 2px;
     }
 
-    .selected line, .selected circle {
-      stroke-width: 2px;
+    .strength {
+      font-size: 12px;
+      fill: darkslateblue;
     }
 
     .magnitude {
       stroke: darkorange;
       stroke-width: 2px;
       fill: none;
+      stroke-linejoin: round;
     }
 
     .magnitude-area {
@@ -74,6 +76,7 @@
       fill: none;
       stroke: darkorchid;
       stroke-width: 2px;
+      stroke-linejoin: round;
     }
 
     .sine {
@@ -88,13 +91,66 @@
       stroke-width: 2px;
     }
 
+    .menu {
+      position: absolute;
+      overflow: hidden;
+      width: 50px;
+      margin: 0;
+      padding: 0;
+      background: #fff;
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+
+    .menu li {
+      list-style: none;
+      margin: 0;
+    }
+
+    .menu button {
+      display: block;
+      cursor: pointer;
+      text-align: left;
+      padding: 3px 8px;
+      width: 100%;
+      background: none;
+      border: none;
+    }
+
+    .menu button:hover {
+      background: #BBDEFB;
+    }
+
+    .edit-menu {
+      width: 100px;
+    }
+
+    .edit-menu input {
+      box-sizing: border-box;
+      width: calc(100% - 5px);
+      margin: 2px;
+    }
+
   </style>
 </head>
 <body>
+  <menu id="add-menu" class="menu" style="display: none;">
+    <li><button data-choice="pole">Pole</button></li>
+    <li><button data-choice="zero">Zero</button></li>
+  </menu>
+
+  <menu id="edit-menu" class="menu edit-menu" style="display: none;">
+    <li><input id="menu-strength" type="number" min="1" max="5" value="1" /></li>
+    <li><button id="menu-remove">Remove</button></li>
+  </menu>
+
   <div class="grid">
     <div>
       <h4>Pole-Zero</h4>
       <svg id="pole-zero"></svg>
+      <div>
+        <button id="clear-btn">Clear</button>
+      </div>
     </div>
     <div>
       <h4>Magnitude (dB)</h4>
@@ -213,41 +269,30 @@
     // f(t)  e ^(-i2pist) dt
 
 
-    const frequencyResponse = (zeros, poles) => {
-
-    }
-
-    const impulseResponse = (time, zeros, poles, frequencies) => {
+    const impulseResponse = (time, zeros, poles) => {
       let result = [0, 0]
 
-      // const A = distance(z[0], z[1])
-      // const w = angle(z[0], z[1])
-
-      for (const f of frequencies) {
-        // freq respose for f is on the unit circle at angle f, it's a complex number
-
-      }
-
-      // for all frequencies apply inverse fourier
-
       // for (let z of zeros) {
-      //   const A = distance(z.x, z.y)
-      //   const w = angle(z.x, z.y)
-      //   const amp = Math.pow(A, time)
-      //   re -= amp * Math.cos(w * time)
-      //   im -= amp * Math.sin(w * time)
+      //   const [re, im] = response(polar(z), time)
+      //   result[0] -= re
+      //   result[1] -= im
+
+      //   const z1 = conjugate(z)
+      //   const [re1, im1] = response(polar(z1), time)
+      //   result[0] -= re1
+      //   result[1] -= im1
       // }
 
-      for (let p of poles) {
-        const [re, im] = response(polar(p), time)
-        result[0] += re
-        result[1] += im
+      // for (let p of poles) {
+      //   const [re, im] = response(polar(p), time)
+      //   result[0] += re
+      //   result[1] += im
 
-        const p1 = conjugate(p)
-        const [re1, im1] = response(polar(p1), time)
-        result[0] += re1
-        result[1] += im1
-      }
+      //   const p1 = conjugate(p)
+      //   const [re1, im1] = response(polar(p1), time)
+      //   result[0] += re1
+      //   result[1] += im1
+      // }
 
       return result
     }
@@ -320,11 +365,55 @@
       }
     }
 
+    const conjugateElement = (el) => {
+      if (el.classed('zero')) return '.conjugate-zero'
+      else if (el.classed('conjugate-zero')) return '.zero'
+      else if (el.classed('pole')) return '.conjugate-pole'
+      else if (el.classed('conjugate-pole')) return '.pole'
+    }
+
     class PoleZeroPlot extends Plot {
-      constructor({onDrag, onSelect, selected, selectedZero, ...args}) {
+      constructor({onDrag, onAddPoint, onRemovePoint, onUpdatePoint, selectedZero, ...args}) {
         super(args)
         this.drawLayout()
-        this.origin = [this.x.invert(0), this.y.invert(0)]
+        this.origin = [this.x(0), this.y(0)]
+        this.pointer = [0, 0]
+
+        this.addMenu = document.querySelector('#add-menu')
+        this.editMenu = document.querySelector('#edit-menu')
+
+        this.addMenu.addEventListener('click', (e) => {
+          const init = e.target.dataset.choice === 'pole' ? pole : zero
+          const x = this.x.invert(this.pointer[0])
+          const y = this.y.invert(this.pointer[1])
+          this.addMenu.style.display = 'none'
+          onAddPoint(init(x, y, 1))
+        })
+
+        document.querySelector('#menu-remove').addEventListener('click', (e) => {
+          this.editMenu.style.display = 'none'
+          onRemovePoint(this.selected)
+        })
+
+        document.querySelector('#menu-strength').addEventListener('input', (e) => {
+          this.selected.strength = Number(e.target.value)
+          onUpdatePoint(this.selected)
+        })
+
+        this.svg.on('click', (e) => {
+          if (this.editMenu.style.display === 'block') {
+            this.editMenu.style.display = 'none'
+            return
+          }
+          if (this.addMenu.style.display === 'block') {
+            this.addMenu.style.display = 'none'
+            return
+          }
+          this.addMenu.style.display = 'block'
+          this.addMenu.style.top = `${e.y + 2}px`
+          this.addMenu.style.left = `${e.x + 2}px`
+          this.pointer = d3.pointer(e)
+        })
 
         const self = this // workaround for d3 using `this` as target element :/
 
@@ -332,7 +421,6 @@
           .on('start', function (e) {
             e.sourceEvent.preventDefault()
             d3.select(this).raise()
-          // d3.select(e.sourceEvent.target).classed('drag', true).attr('r', 7)
           })
           .on('drag', function (e) {
             const targetEl = d3.select(this)
@@ -340,8 +428,16 @@
             const newDatum = {...datum}
             let {dx, dy} = e
 
-            const x = snap(self.x(datum.x) + dx, self.origin[0], 3)
-            const y = snap(self.y(datum.y) + dy, self.origin[1], 3)
+            // const x = snap(self.x(datum.x) + dx, self.origin[0], 3)
+            // const y = snap(self.y(datum.y) + dy, self.origin[1], 3)
+            const x = self.x(datum.x) + dx
+            const y = self.y(datum.y) + dy
+
+            console.log(x, d3.pointer(e, self.svg))
+
+            // const [x, y] = d3.pointer(e, self.svg)
+
+            // console.log(e.x, x)
 
             newDatum.x = self.x.invert(x)
             newDatum.y = self.y.invert(y)
@@ -350,27 +446,26 @@
               .attr('transform', `translate(${[x, self.y(newDatum.y)]})`)
               .datum(newDatum)
 
-            let conjugate = ''
-
-            if (targetEl.classed('zero')) conjugate = '.conjugate-zero'
-            else if (targetEl.classed('conjugate-zero')) conjugate = '.zero'
-            else if (targetEl.classed('pole')) conjugate = '.conjugate-pole'
-            else if (targetEl.classed('conjugate-pole')) conjugate = '.pole'
-
-            self.svg.selectAll(conjugate)
+            self.svg.selectAll(conjugateElement(targetEl))
               .filter((d) => d.key === datum.key)
               .datum({...newDatum, y: -newDatum.y})
               .attr('transform', `translate(${[x, self.y(-newDatum.y)]})`)
 
             onDrag(newDatum)
           })
-          .on('end', (e) => {
-            // d3.select(e.sourceEvent.target).classed('drag', false).attr('r', 5)
-          })
 
+        this.selected = null
+      }
 
-        // this.onSelect = onSelect
-        // this.selected = selected
+      onClick(event, datum) {
+        event.stopPropagation()
+        this.selected = datum
+        this.addMenu.style.display = 'none'
+
+        this.editMenu.style.display = 'block'
+        this.editMenu.style.top = `${event.y + 2}px`
+        this.editMenu.style.left = `${event.x + 2}px`
+        document.querySelector('#menu-strength').value = datum.strength
       }
 
       drawPolesZeros(data) {
@@ -378,13 +473,12 @@
           .data(data.filter(d => d.type === 'zero'))
           .join('g')
             .classed('zero', true)
-            // .classed('selected', (d, i) => i == this.selected)
             .call(drawZero)
             .call(this.drag)
             .attr('transform', d => `translate(${[this.x(d.x), this.y(d.y)]})`)
-            // .on('click', (d, i) => this.onSelect(d, i))
+            .on('click', (e, d) => this.onClick(e, d))
             .select('.strength')
-              .text(d => d[2])
+              .text(d => d.strength)
               .attr('visibility', d => d.strength > 1 ? 'inherit' : 'hidden')
 
         this.svg.selectAll('.conjugate-zero')
@@ -392,27 +486,24 @@
           .join('g')
             .datum(d => ({...d, y: -d.y}))
             .classed('conjugate-zero', true)
-            .attr('visibility', d => d.y == 0 ? 'hidden' : 'visible')
-            // .classed('selected', (d, i) => i == this.selected)
             .call(drawZero)
             .call(this.drag)
-            .attr('transform', d => `translate(${[this.x(d.x), this.y(-d.y)]})`)
-            // .on('click', (d, i) => this.onSelect(d, i))
+            .attr('transform', d => `translate(${[this.x(d.x), this.y(d.y)]})`)
+            .on('click', (e, d) => this.onClick(e, d))
             .select('.strength')
-              .text(d => d[2])
+              .text(d => d.strength)
               .attr('visibility', d => d.strength > 1 ? 'inherit' : 'hidden')
 
         this.svg.selectAll('.pole')
           .data(data.filter(d => d.type === 'pole'))
           .join('g')
             .classed('pole', true)
-            // .classed('selected', (d, i) => i == this.selected)
             .call(drawPole)
             .call(this.drag)
             .attr('transform', d => `translate(${[this.x(d.x), this.y(d.y)]})`)
-            // .on('click', (d, i) => this.onSelect(d, i))
+            .on('click', (e, d) => this.onClick(e, d))
             .select('.strength')
-              .text(d => d[2])
+              .text(d => d.strength)
               .attr('visibility', d => d.strength > 1 ? 'inherit' : 'hidden')
 
         this.svg.selectAll('.conjugate-pole')
@@ -420,13 +511,12 @@
           .join('g')
             .datum(d => ({...d, y: -d.y}))
             .classed('conjugate-pole', true)
-            // .classed('selected', (d, i) => i == this.selected)
             .call(drawPole)
             .call(this.drag)
             .attr('transform', d => `translate(${[this.x(d.x), this.y(d.y)]})`)
-            // .on('click', (d, i) => this.onSelect(d, i))
+            .on('click', (e, d) => this.onClick(e, d))
             .select('.strength')
-              .text(d => d[2])
+              .text(d => d.strength)
               .attr('visibility', d => d.strength > 1 ? 'inherit' : 'hidden')
       }
 
@@ -608,7 +698,24 @@
       onDrag: (target) => {
         const i = data.findIndex(d => d.key === target.key)
         data[i] = target
-        redraw()
+        redrawOutput()
+      },
+      onAddPoint: (point) => {
+        data.push(point)
+        poleZero.drawPolesZeros(data)
+        redrawOutput()
+      },
+      onRemovePoint: (point) => {
+        const idx = data.findIndex(d => d.key === point.key)
+        data.splice(idx, 1)
+        poleZero.drawPolesZeros(data)
+        redrawOutput()
+      },
+      onUpdatePoint: (point) => {
+        const idx = data.findIndex(d => d.key === point.key)
+        data[idx] = point
+        poleZero.drawPolesZeros(data)
+        redrawOutput()
       }
     })
 
@@ -630,28 +737,25 @@
       margin,
     })
 
+    const timeInterval = [0, 60]
     const timePlot = new TimePlot({
       svgSelector:'#timeplot',
-      xdomain: [0, 50],
+      xdomain: timeInterval,
       ydomain: [2, -2],
-      width: 800,
+      width: 3*width,
       height: 300,
       margin,
     })
 
-    const time = d3.range(0, 50, 0.1)
+    const time = d3.range(...timeInterval, 0.1)
     const frequencies = d3.range(0, Math.PI+0.01, 0.01)
 
-    // const data = [
-    //   zero( 0.0013674060635677, -0.9999990650998917, 1),
-    //   zero(-0.7064224164410539, -0.7077904842180222, 1),
-    //   pole( 0.3142251190555413, -0.6948674561628037, 1),
-    //   pole( 0.1059132792803165, -0.2621513011445515, 1),
-    // ]
     const data = [
-      // zero(0, 0, 1),
+      zero(-1, 0, 1),
+
       pole(0.85441, 0.23288, 1),
-      pole(0.4, 0.7, 1)
+      // pole(0.4, 0.7, 1)
+
       // zero(1, 0, 1),
       // pole(0.6, 0.75, 1),
       // pole(0.3, 0.8, 1),
@@ -663,19 +767,25 @@
 
     poleZero.drawPolesZeros(data)
 
-    const redraw = () => {
+    const redrawOutput = () => {
       const zeros = data.filter(d => d.type === 'zero')
       const poles = data.filter(d => d.type === 'pole')
       const magnitudeData = frequencies.map(f => magnitude(f, zeros, poles))
       const phaseData = frequencies.map(f => phase(f, zeros, poles))
-      const timeData = time.map(t => [t, ...impulseResponse(t, zeros, poles, frequencies)])
+      const timeData = time.map(t => [t, ...impulseResponse(t, zeros, poles)])
 
       magnitudePlot.drawPath(magnitudeData)
       phasePlot.drawPath(phaseData)
       timePlot.drawPath(timeData)
     }
 
-    redraw()
+    redrawOutput()
+
+    document.querySelector('#clear-btn').addEventListener('click', () => {
+      data.length = 0
+      poleZero.drawPolesZeros(data)
+      redrawOutput()
+    })
 
   </script>
 </body>
