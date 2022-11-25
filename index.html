@@ -419,25 +419,19 @@
 
         this.drag = d3.drag()
           .on('start', function (e) {
+            self.editMenu.style.display = 'none'
+            self.addMenu.style.display = 'none'
             e.sourceEvent.preventDefault()
             d3.select(this).raise()
           })
-          .on('drag', function (e) {
+          .on('drag', function (e, subject) {
             const targetEl = d3.select(this)
             const datum = targetEl.datum()
             const newDatum = {...datum}
             let {dx, dy} = e
 
-            // const x = snap(self.x(datum.x) + dx, self.origin[0], 3)
-            // const y = snap(self.y(datum.y) + dy, self.origin[1], 3)
-            const x = self.x(datum.x) + dx
-            const y = self.y(datum.y) + dy
-
-            console.log(x, d3.pointer(e, self.svg))
-
-            // const [x, y] = d3.pointer(e, self.svg)
-
-            // console.log(e.x, x)
+            const x = self.x(subject.x) + e.x
+            const y = snap(self.y(subject.y) + e.y, self.origin[1], 2)
 
             newDatum.x = self.x.invert(x)
             newDatum.y = self.y.invert(y)
