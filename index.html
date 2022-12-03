@@ -79,20 +79,8 @@
       stroke-linejoin: round;
     }
 
-    .sine {
-      fill: none;
-      stroke: deeppink;
-      stroke-width: 2px;
-    }
-
-    .cosine {
-      fill: none;
-      stroke: dodgerblue;
-      stroke-width: 2px;
-    }
-
     .menu {
-      position: absolute;
+      position: fixed;
       overflow: hidden;
       width: 50px;
       margin: 0;
@@ -182,6 +170,8 @@
       x, y, strength, type: 'zero', key: unique(),
     })
 
+    const conjugate = (z) => ({...z, y: -z.y})
+
     const distance = (x1, y1, x2=0, y2=0) => Math.sqrt((x1-x2)*(x1-x2) + (y1-y2)*(y1-y2))
 
     const angle = (x, y) => Math.atan2(y, x)
@@ -251,66 +241,83 @@
       return [freq, unwrap(ph)]
     }
 
-    // const analysis = (range, signal) => (freq) => {
-    //   const sine = sinusoid(freq)
-    //   const cosine = sinusoid(freq, Math.PI/2)
-    //   const complex = [0, 0]
-    //   for (const t of range) {
-    //     complex[0] += signal(t) * cosine(t),
-    //     complex[1] -= signal(t) * sine(t)
-    //   }
-    //   return magnitude(complex)
-    // }
-
-
-    // f(t) cos(2pist) dt
-    //-  f(t) sin(2pist) dt
-
-    // f(t)  e ^(-i2pist) dt
-
-
-    const impulseResponse = (time, zeros, poles) => {
-      let result = [0, 0]
-
-      // for (let z of zeros) {
-      //   const [re, im] = response(polar(z), time)
-      //   result[0] -= re
-      //   result[1] -= im
-
-      //   const z1 = conjugate(z)
-      //   const [re1, im1] = response(polar(z1), time)
-      //   result[0] -= re1
-      //   result[1] -= im1
-      // }
-
-      // for (let p of poles) {
-      //   const [re, im] = response(polar(p), time)
-      //   result[0] += re
-      //   result[1] += im
-
-      //   const p1 = conjugate(p)
-      //   const [re1, im1] = response(polar(p1), time)
-      //   result[0] += re1
-      //   result[1] += im1
-      // }
-
-      return result
-    }
-
-    // pole in polar form
-    const response = ({r, w}, time) => {
-      const amp = Math.pow(r, time)
-      const re = amp * Math.cos(w * time)
-      const im = amp * Math.sin(w * time)
+    const multiply = (complex1, complex2) => {
+      // (a + bi)(c + di) = ac + bic + adi + bidi = (ac - bd) + (ad + bc)i
+      const [a, b] = complex1
+      const [c, d] = complex2
+      const re = a * c - b * d
+      const im = a * d + b * c
       return [re, im]
     }
 
-    const conjugate = ({x, y}) => ({x, y: -y})
+    const divide = (complex1, complex2) => {
+      // (a + bi)    (a + bi)(c - di)    (ac + bd) + (bc - ad)i
+      // --------- = ---------------- = -----------------------
+      // (c + di)    (c + di)(c - di)         c^2 + d^2
+      const [a, b] = complex1
+      const [c, d] = complex2
+      const re = (a * c + b * d) / (c * c + d * d)
+      const im = (b * c - a * d) / (c * c + d * d)
+      return [re, im]
+    }
 
-    const polar = ({x, y}) => {
-      const r = distance(x, y)
-      const w = angle(x, y)
-      return {r, w}
+    // TODO: include strength
+    const transferFunction = (freq, zeros, poles) => {
+      //          (z - z1)(z - z2)...()
+      //  H(Z) = -----------------------
+      //          (z - p1)(z - p2)...()
+
+      // e^j⍵
+      const x = Math.cos(freq)
+      const y = -Math.sin(freq)
+
+      // initial values
+      const z = zeros[0]
+      let numerator = [x - z.x, y - z.y]
+
+      const p = poles[0]
+      let denominator =  [x - p.x, y - p.y]
+
+      for (let z of zeros.slice(1)) {
+        const c = x - z.x
+        const d = y - z.y
+        numerator = multiply(numerator, [c, d])
+      }
+
+      for (let p of poles.slice(1)) {
+        const c = x - z.x
+        const d = y - z.y
+        denominator = multiply(denominator, [c, d])
+      }
+
+      return divide(numerator, denominator)
+    }
+
+    // transfer function H -> inverse DFT -> impulse response
+    const impulseResponse = (time, freqs, zeros, poles) => {
+      const allZeros = [...zeros, ...zeros.map(conjugate)]
+      const allPoles = [...poles, ...poles.map(conjugate)]
+
+      // inverse DFT of transfer function
+      let re = 0, im = 0
+      for (const f of freqs) {
+        const c1 = [
+          Math.cos(2 * Math.PI * f * time),
+          -Math.sin(2 * Math.PI * f * time)
+        ]
+        const c2 = transferFunction(f, allZeros, allPoles)
+        const result = multiply(c1, c2)
+
+        // re += c1[0]
+        re += result[0]
+        // im += c1[1]
+        im +=result[1]
+
+        // console.log(f, value)
+        // console.log(re, im)
+      }
+
+      return (re + im) / freqs.length
     }
 
     const createClippingRect = (svg, id, width, height) => {
@@ -626,7 +633,6 @@
       }
     }
 
-
     class TimePlot extends Plot {
       constructor(args) {
         super(args)
@@ -639,11 +645,8 @@
       }
 
       createPaths() {
-        this.sinePath = this.svg.append('path')
-          .classed('sine', true)
-          .attr('clip-path', 'url(#clip)')
-        this.cosinePath = this.svg.append('path')
-          .classed('cosine', true)
+        this.path = this.svg.append('path')
+          .classed('response', true)
           .attr('clip-path', 'url(#clip)')
       }
 
@@ -667,14 +670,10 @@
       }
 
       drawPath(data) {
-        const max = d3.max(data, (d) => Math.max(Math.abs(d[1]), Math.abs(d[2])))
-        this.y.domain([max, -max])
-        this.svg.select('.y-axis').call(d3.axisLeft(this.y).ticks(5).tickSize(0))
-
-        const cosine = data.map(d => [d[0], d[1]])
-        const sine = data.map(d => [d[0], d[2]])
-        this.sinePath.attr('d', this.line(sine))
-        this.cosinePath.attr('d', this.line(cosine))
+        // const max = d3.max(data, (d) => Math.max(Math.abs(d[1]), Math.abs(d[2])))
+        // this.y.domain([max, -max])
+        // this.svg.select('.y-axis').call(d3.axisLeft(this.y).ticks(5).tickSize(0))
+        this.path.attr('d', this.line(data))
       }
     }
 
@@ -731,18 +730,19 @@
       margin,
     })
 
-    const timeInterval = [0, 60]
-    const timePlot = new TimePlot({
-      svgSelector:'#timeplot',
-      xdomain: timeInterval,
-      ydomain: [2, -2],
-      width: 3*width,
-      height: 300,
-      margin,
-    })
+    const timeInterval = [0, 10]
+    // const timePlot = new TimePlot({
+    //   svgSelector:'#timeplot',
+    //   xdomain: timeInterval,
+    //   ydomain: [1, -1],
+    //   width: 3*width,
+    //   height: 300,
+    //   margin,
+    // })
 
     const time = d3.range(...timeInterval, 0.1)
-    const frequencies = d3.range(0, Math.PI+0.01, 0.01)
+    const frequencies = d3.range(-Math.PI-0.01, Math.PI+0.01, 0.01)
+    const positiveFreqs = d3.range(0.0, Math.PI+0.01, 0.01)
 
     const data = [
       zero(-1, 0, 1),
@@ -764,13 +764,13 @@
     const redrawOutput = () => {
       const zeros = data.filter(d => d.type === 'zero')
       const poles = data.filter(d => d.type === 'pole')
-      const magnitudeData = frequencies.map(f => magnitude(f, zeros, poles))
-      const phaseData = frequencies.map(f => phase(f, zeros, poles))
-      const timeData = time.map(t => [t, ...impulseResponse(t, zeros, poles)])
+      const magnitudeData = positiveFreqs.map(f => magnitude(f, zeros, poles))
+      const phaseData = positiveFreqs.map(f => phase(f, zeros, poles))
+      // const timeData = time.map(t => [t, impulseResponse(t, frequencies, zeros, poles)])
 
       magnitudePlot.drawPath(magnitudeData)
       phasePlot.drawPath(phaseData)
-      timePlot.drawPath(timeData)
+      // timePlot.drawPath(timeData)
     }
 
     redrawOutput()
